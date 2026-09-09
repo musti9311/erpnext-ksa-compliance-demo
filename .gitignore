@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# ERPNext runtime
+.backups/
+*.db
+sites/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# generated artifacts (keep evidence, regenerate data)
+casual_read
