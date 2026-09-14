@@ -1,4 +1,45 @@
 services:
+  init-hrms:
+    image: frappe/erpnext:v16.34.1
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: none
+    entrypoint:
+      - bash
+      - -c
+    command:
+      - >
+        wait-for-it -t 120 db:3306;
+        export start=`date +%s`;
+        until [[ -f sites/common_site_config.json ]] && [[ -d sites/frontend ]];
+        do sleep 5;
+          if (( `date +%s`-start > 180 )); then echo "site never appeared"; exit 1; fi
+        done;
+        rm -rf apps/hrms;
+        bench get-app --branch v16.18.1 https://github.com/frappe/hrms;
+        ls -1 apps > sites/apps.txt;
+        bench --site frontend install-app hrms;
+        bench build --app hrms;
+        bench --site frontend migrate;
+        bench --site frontend clear-cache;
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      MYSQL_ROOT_PASSWORD: admin
+      MARIADB_ROOT_PASSWORD: admin
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+      - apps:/home/frappe/frappe-bench/apps
+      - env:/home/frappe/frappe-bench/env
+
   backend:
     image: frappe/erpnext:v16.34.1
     networks:
@@ -9,13 +50,15 @@ services:
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
+      - apps:/home/frappe/frappe-bench/apps
+      - env:/home/frappe/frappe-bench/env
     environment:
       DB_HOST: db
       DB_PORT: "3306"
       MYSQL_ROOT_PASSWORD: admin
       MARIADB_ROOT_PASSWORD: admin
     depends_on:
-      configurator:
+      init-hrms:
         condition: service_completed_successfully
 
   configurator:
@@ -46,6 +89,8 @@ services:
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
+      - apps:/home/frappe/frappe-bench/apps
+      - env:/home/frappe/frappe-bench/env
 
   create-site:
     image: frappe/erpnext:v16.34.1
@@ -57,6 +102,8 @@ services:
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
+      - apps:/home/frappe/frappe-bench/apps
+      - env:/home/frappe/frappe-bench/env
     entrypoint:
       - bash
       - -c
@@ -78,6 +125,7 @@ services:
           fi
         done;
         echo "sites/common_site_config.json found";
+        ls -1 apps > sites/apps.txt;
         if [ -d "sites/frontend" ]; then
           echo "Site frontend already exists, skipping creation";
         else
@@ -131,6 +179,8 @@ services:
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
+      - apps:/home/frappe/frappe-bench/apps
+      - env:/home/frappe/frappe-bench/env
     ports:
       - "8080:8080"
 
@@ -149,11 +199,13 @@ services:
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
+      - apps:/home/frappe/frappe-bench/apps
+      - env:/home/frappe/frappe-bench/env
     environment:
       FRAPPE_REDIS_CACHE: redis://redis-cache:6379
       FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
     depends_on:
-      configurator:
+      init-hrms:
         condition: service_completed_successfully
 
   queue-short:
@@ -171,11 +223,13 @@ services:
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
+      - apps:/home/frappe/frappe-bench/apps
+      - env:/home/frappe/frappe-bench/env
     environment:
       FRAPPE_REDIS_CACHE: redis://redis-cache:6379
       FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
     depends_on:
-      configurator:
+      init-hrms:
         condition: service_completed_successfully
 
   redis-queue:
@@ -209,8 +263,10 @@ services:
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
+      - apps:/home/frappe/frappe-bench/apps
+      - env:/home/frappe/frappe-bench/env
     depends_on:
-      configurator:
+      init-hrms:
         condition: service_completed_successfully
 
   websocket:
@@ -229,11 +285,15 @@ services:
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
+      - apps:/home/frappe/frappe-bench/apps
+      - env:/home/frappe/frappe-bench/env
     depends_on:
-      configurator:
+      init-hrms:
         condition: service_completed_successfully
 
 volumes:
+  apps:
+  env:
   db-data:
   redis-queue-data:
   sites:

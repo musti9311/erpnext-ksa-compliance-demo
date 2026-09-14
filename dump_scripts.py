@@ -16,6 +16,8 @@ jobs = [
     ("Server%20Script/zatca_submit", "zatca_submit.server.py"),
     ("Server%20Script/vat_guard", "vat_guard.server.py"),
     ("Client%20Script/zatca_button", "zatca_button.client.js"),
+    ("Server%20Script/employer_gosi", "employer_gosi.server.py"),
+    ("Server%20Script/eosb_accrue", "eosb_accrue.server.py"),
 ]
 for path, fname in jobs:
     r = opener.open("http://localhost:8080/api/resource/" + path, timeout=30)
@@ -24,4 +26,22 @@ for path, fname in jobs:
     with open(os.path.join(OUT, fname), "w", encoding="utf-8") as f:
         f.write(header + d["script"])
     print("saved", fname, len(d["script"]), "chars")
+
+# Query Reports: dump their SQL + filter declarations
+reports = [
+    ("GOSI Monthly Contribution Register", "gosi_register.sql"),
+    ("KSA EOSB Liability Register", "eosb_register.sql"),
+]
+import urllib.parse
+for rname, fname in reports:
+    q = urllib.parse.quote(rname, safe="")
+    r = opener.open("http://localhost:8080/api/resource/Report/" + q, timeout=30)
+    d = json.loads(r.read().decode())["data"]
+    filters = "\n".join(
+        f"-- filter: {f.get('fieldname')} ({f.get('fieldtype')}) default={f.get('default') or ''}"
+        for f in d.get("filters", []))
+    head = f"-- Query Report — {rname}\n{filters}\n\n"
+    with open(os.path.join(OUT, fname), "w", encoding="utf-8") as f:
+        f.write(head + d.get("query", ""))
+    print("saved", fname, len(d.get("query", "")), "chars")
 print("DONE")
