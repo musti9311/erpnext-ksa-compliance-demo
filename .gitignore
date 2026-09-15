@@ -18,3 +18,7 @@ pwd.yml
 
 # local demo credentials + scratch
 m4_pw*.py
+
+# build artifacts
+WhatIBuilt_Handout.pdf
+docs/handout_preview.png
