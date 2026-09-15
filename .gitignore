@@ -14,3 +14,7 @@ Thumbs.db
 
 # generated artifacts (keep evidence, regenerate data)
 casual_read
+pwd.yml
+
+# local demo credentials + scratch
+m4_pw*.py
