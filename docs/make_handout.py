@@ -82,6 +82,7 @@ rows = [
     ("Content frozen under approval", "buyer edits blocked while Pending (TOCTOU closed)"),
     ("Vendor bank-change fraud trail", "IBAN/account retarget -> visible timeline note naming doer"),
     ("Iqama / work-permit expiry alert", "ERPNext Notification, 30 days advance, to HR"),
+    ("No sales invoice ships without VAT", "vat_guard: submit blocked unless a 15% template is applied"),
 ]
 ty = y - 6 * mm
 for a, b in rows:
@@ -91,26 +92,53 @@ for a, b in rows:
     c.drawString(82 * mm, ty, b)
     ty -= 4.6 * mm
 
-# honest limits + footer anchored near the page bottom
-fy = 20 * mm                      # footer band y
-c.setFillColor(NAVY)
-c.rect(14 * mm, fy, W - 28 * mm, 7.5 * mm, stroke=0, fill=1)
-c.setFillColor(HexColor("#ffffff")); c.setFont("Helvetica-Bold", 8.2)
-c.drawCentredString(W / 2, fy + 2.4 * mm, "Available in Jeddah  |  full scripts + test suite + decision journal:")
-c.drawCentredString(W / 2, fy - 2.2 * mm, "github.com/musti9311/erpnext-ksa-compliance-demo")
+# --- flow sections straight after the control table; footer pinned at bottom
+def section(ytop, title, body, title_font=10.5, body_font=8.6, gap=11.5):
+    c.setFillColor(NAVY); c.setFont("Helvetica-Bold", title_font)
+    c.drawString(14 * mm, ytop, title)
+    c.setFillColor(SLATE); c.setFont("Helvetica", body_font)
+    y = ytop
+    for line in body:
+        y -= gap  # points, sized for body_font
+        c.drawString(16 * mm, y, line)
+    return y
 
-ly = fy + 15 * mm                 # limits block sits above the footer
-c.setFillColor(NAVY); c.setFont("Helvetica-Bold", 10.5)
-c.drawString(14 * mm, ly, "Honest limits (all in DECISIONS.md)")
-c.setFillColor(SLATE); c.setFont("Helvetica", 8.5)
-for line in [
+y = ty - 6   # ty = just below the control-set table (points)
+y = section(y, "Fraud scenarios the suite proves blocked (each a live repro, not a unit test)", [
+    "-  90k-SAR PO hidden in USD pricing -> quote rule still fires (base-currency check)",
+    "-  one token PO-linked line + 375k unlinked line -> invoice submit refused",
+    "-  creator flips docstatus=1 to skip approvals -> blocked unless workflow says Approved",
+    "-  buyer inflates his PO while it sits in Pending approval -> content frozen, edit refused",
+    "-  'supplier emailed a new IBAN' -> the change names the doer in the Supplier timeline",
+])
+y -= 16  # section spacing, points
+y = section(y, "Honest limits (all in DECISIONS.md)", [
     "Fatoora mocks the published Phase 2 contract faithfully - the endpoint is switched, not certified;",
     "no CR or CSID, so no real clearance. GOSI models legacy-tier rates; the new-law tier is a documented",
     "talking point, not modeled. Administrator can delete audit comments (Frappe's Version log backstops",
-    "them). Everything else is real code running on a real instance, verifiable by cloning the repo.",
-]:
-    ly -= 4.6 * mm
-    c.drawString(16 * mm, ly, line)
+    "them). Everything else is real code on a real instance, verifiable by cloning the repo.",
+])
+y -= 16  # section spacing, points
+y = section(y, "The 7 gaps out-of-the-box ERPNext leaves for Saudi SMEs - and what closes each", [
+    "-  ZATCA e-invoicing: TLV QR + Phase 2 clearance lifecycle (M1-M2)",
+    "-  GOSI: legacy-tier rates, 45k wage cap, employer + employee halves on the ledger",
+    "-  EOSB: tiered accrual to account 2330 + 7-year back-reserve register",
+    "-  Iqama tracking: 30-day expiry Notification to HR, per employee",
+    "-  KSA leave types: annual 21/30, Hajj, maternity 10wk, paternity 3d",
+    "-  Procurement controls: the chain above (M4), audit-hardened",
+    "-  Saudi CoA: VAT input/output accounts + 15% templates wired into the guards",
+])
+y -= 16  # section spacing, points
+y = section(y, "Run it yourself", [
+    "git clone https://github.com/musti9311/erpnext-ksa-compliance-demo  ->  docker compose -f pwd.yml up -d",
+    "http://localhost:8080 (Administrator/admin) - invoice print shows the QR; POs walk the workflow.",
+    "Demo personas for the approval chain: buyer / purchase.manager / accounts.manager (@alrehab-demo.example).",
+])
+fby = 14 * mm
+c.setFillColor(NAVY)
+c.rect(14 * mm, fby, W - 28 * mm, 7.5 * mm, stroke=0, fill=1)
+c.setFillColor(HexColor("#ffffff")); c.setFont("Helvetica-Bold", 8.2)
+c.drawCentredString(W / 2, fby + 2.6 * mm, "Available in Jeddah  |  scripts + 29-check suite + decision journal: github.com/musti9311/erpnext-ksa-compliance-demo")
 
 c.showPage()
 c.save()
