@@ -1,11 +1,12 @@
-# ERPNext KSA Compliance Demo — ZATCA Phase 1 & 2 + People Compliance
+# ERPNext KSA Compliance Demo — ZATCA, Payroll & Procurement Controls
 
 A working Saudi-compliance demo built on a local ERPNext v16 stack: every invoice gets a
 **ZATCA Phase 1 QR** (TLV/Base64), a **mock Fatoora** exercises the full Phase 2 clearance
 lifecycle — submit → cleared → rejected → retried — with a SHA-256 chain for tamper evidence,
-and **HR/Payroll models GOSI + EOSB + Iqama expiry** end-to-end: a real September payroll for
-10 employees (5 Saudi / 5 expat), both contribution halves posted to the ledger, and 7 years
-of EOSB liability back-reserved.
+**HR/Payroll models GOSI + EOSB + Iqama expiry** end-to-end (real September payroll for 10
+employees, both contribution halves posted to the ledger), and **procurement enforces the
+7-control approval chain** — two-level PO approval, competitive-quote threshold, invoice-to-PO
+matching — proven against an adversarial bypass audit (29/29 fraud checks).
 
 > Built as a portfolio project (Sept 2026). All data is fictional (Al-Rehab Trading Est.,
 > Jeddah). No real CR, no real tax authority connection — see [Honest limitations](#honest-limitations).
@@ -64,6 +65,31 @@ in `payroll_entry.py`) — this posts them: Dr GOSI Expense / Cr GOSI Payable, i
 run. `eosb_accrue.server.py` — no EOSB accrual machinery exists in core HR for KSA rules at
 all; this books monthly liability per the tier above.
 
+## Procurement controls (M4) — the 7-control approval chain
+
+Mirrors the internal-controls vocabulary a Saudi audit firm cares about. Three demo users act
+out the fraud scenarios: **Sami** (Purchase User — creates POs, can never approve), **Kareem**
+(Purchase Manager), **Amina** (Accounts Manager).
+
+| Control | Mechanism |
+|---|---|
+| Two-level approval above SAR 10,000 | Workflow `KSA PO Approval`: Request → Manager → Final Approve; ≤10k fast-tracks in one manager click (materiality tiering) |
+| Competitive quote ≥ SAR 25,000 | `quote_guard` on submit: link must exist, same supplier, submitted, and **covering the PO's SAR value** — thresholds read `base_grand_total`, so a USD-priced PO can't sail under them |
+| No invoice without a PO | `po_match_guard`: **every** priced line must carry a PO link (an `any()` check was launderable with one token line — audit caught it) |
+| Approval chain can't be skipped | `po_submit_gate`: direct `docstatus=1` PUT lands in Approved (even escaping Rejected — audit found this); submit is now only legal when the workflow itself says Approved |
+| Approval = content freeze | `pending_freeze`: buyer inflated his own PO 41.4k → 375k *while pending* (allow_edit gates the UI, not write permission — audit found this); content changes in Pending states now need a Manager role |
+| Rate integrity | ERPNext core `maintain_same_rate_action=Stop` verified (PO 45 → invoice 60 blocked) — not re-invented |
+| Vendor-payment fraud trail | `bank_change_audit`: any IBAN / default-bank-account retarget is stamped into the Supplier's visible timeline naming the doer, old→new |
+
+**The audit story is the point.** First version passed 16/16 of my own tests; a read-only
+adversarial audit then found **4 real bypasses** (currency-blind thresholds, token-line
+laundering, docstatus escape hatch, mid-approval TOCTOU). All four fixed, each converted into
+a permanent regression: `erpnext_scripts/m4_e2e_test.py` — 29 checks, idempotent, run as the
+real users through the live API. Every decision and sandbox gotcha in `DECISIONS.md`.
+
+Residual risks, stated openly: Administrator can delete audit comments (Frappe's Version log
+backstops them); the ≤10k fast-track is one click by design.
+
 ## What's inside
 
 ```
@@ -79,6 +105,13 @@ erpnext_scripts/         M2b–d + M3: live ERPNext customizations, dumped from 
   eosb_accrue.server.py    monthly EOSB liability accrual, tiered, idempotent per month
   gosi_register.sql        Query Report: GOSI monthly contribution register (portal-shaped)
   eosb_register.sql        Query Report: EOSB liability per expat, as-of any date
+  quote_guard.server.py    M4: SAR 25k competitive-quote threshold (base currency, coverage-checked)
+  po_match_guard.server.py M4: every priced invoice line needs a PO link
+  po_submit_gate.server.py M4: submit only via workflow (docstatus escape hatch closed)
+  pending_freeze.server.py M4: content frozen while a PO is pending approval (TOCTOU)
+  bank_change_audit.server.py M4: IBAN/bank-account retarget -> visible audit comment
+  m4_install.py            idempotent installer (custom fields + Server Scripts + VAT template)
+  m4_e2e_test.py           29-check fraud regression suite (runs as Sami/Kareem/Amina)
 dump_scripts.py          re-export all of the above from a running instance
 ACC-SINV-2026-00001_ZATCA.pdf   M1 evidence: printed invoice with embedded QR
 DECISIONS.md              decision journal — what was chosen and why
@@ -99,7 +132,10 @@ cd mock_fatoora && pip install fastapi "uvicorn[standard]" && uvicorn main:app -
 cd qr-generator && python tlv_generator.py
 ```
 
-Login `Administrator` / `admin`. The customizations (Server Scripts, Client Script,
+Login `Administrator` / `admin`. Demo personas for the M4 chain (password `demo123`):
+`buyer@…` Sami, `purchase.manager@…` Kareem, `accounts.manager@…` Amina.
+To replay the fraud suite against a running instance: `python erpnext_scripts/m4_e2e_test.py`
+(recreates its own POs/invoices; idempotent). The customizations (Server Scripts, Client Script,
 ZATCA custom fields, Print Format, VAT templates/accounts) live **inside the instance** —
 to recreate from scratch on a fresh site, follow `DECISIONS.md` + `erpnext_scripts/`.
 
