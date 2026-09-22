@@ -12,10 +12,10 @@ frappe.ui.form.on("Sales Invoice", {
                         const st = r.message.result.status;
                         frm.reload_doc();
                         frappe.show_alert({
-                            message: st === "OK"
+                            message: st === "OK" || st === "ALREADY_CLEARED"
                                 ? "ZATCA clearance: CLEARED"
                                 : "ZATCA clearance: REJECTED — see status",
-                            indicator: st === "OK" ? "green" : "red"
+                            indicator: st === "OK" || st === "ALREADY_CLEARED" ? "green" : "red"
                         });
                     }
                 });

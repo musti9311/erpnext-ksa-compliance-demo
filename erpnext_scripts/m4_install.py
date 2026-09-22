@@ -1,10 +1,14 @@
 # M4 installer (idempotent, safe to re-run). Creates if missing:
 #  1. custom_supplier_quotation (Link -> Supplier Quotation) on Purchase Order
-#  2. Server Scripts: quote_guard, po_match_guard, bank_change_audit
+#  2. Server Scripts: quote_guard, po_match_guard, bank_change_audit,
+#     po_submit_gate, pending_freeze
 #  3. Purchase VAT 15% template (none exists yet)
-#  4. Passwords for Kareem + Amina (demo123) so the chain can be acted out
+#  4. Workflow: KSA PO Approval (10k two-level + 25k quote legs live in scripts)
+#  5. Passwords for Kareem + Amina (demo123) so the chain can be acted out
 import frappe
-from frappe.utils.password import update_password
+
+if not getattr(frappe.local, "lang", None):
+    frappe.local.lang = "en"  # bench console has no request language; avoids a locale crash
 
 HERE = "/tmp"  # scripts copied in alongside this file
 SFILE = {
@@ -63,6 +67,9 @@ for name, fname in SFILE.items():
 if not frappe.db.exists("Purchase Taxes and Charges Template", {"title": "VAT 15% - ATE"}):
     acct = frappe.db.get_value("Account", {"account_name": "Input VAT Recoverable", "company": "Al-Rehab Trading Est."}, "name")
     if not acct:
+        # prefer an Input-side account — bare %VAT% can return VAT Output first
+        acct = frappe.db.get_value("Account", {"company": "Al-Rehab Trading Est.", "account_name": ("like", "%Input%")}, "name")
+    if not acct:
         # find any VAT-ish payable account
         acct = frappe.db.get_value("Account", {"company": "Al-Rehab Trading Est.", "account_name": ("like", "%VAT%")}, "name")
     frappe.get_doc({
@@ -80,7 +87,62 @@ if not frappe.db.exists("Purchase Taxes and Charges Template", {"title": "VAT 15
 else:
     print("VAT template exists")
 
-# 4. passwords: DO NOT set via update_password() here — it double-fails against
+# 4. workflow (thresholds in BASE currency — the audit's worst find; see DECISIONS.md)
+# Workflow states/actions are Link masters — create them first or the
+# workflow insert dies with "Could not find Row #1: State: ..." (found on
+# a real fresh-site replay 2026-09-22).
+for st, style in [("Draft", ""), ("Pending Manager Approval", ""),
+                  ("Pending Accountant Approval", ""), ("Approved", "Success"),
+                  ("Rejected", "Danger")]:
+    if frappe.db.exists("Workflow State", st):
+        continue
+    frappe.get_doc({"doctype": "Workflow State",
+                    "workflow_state_name": st, "style": style}).insert(ignore_permissions=True)
+    print("state", st, "created")
+for act in ["Request Approval", "Direct Approve", "Manager Approve", "Final Approve", "Reject"]:
+    if frappe.db.exists("Workflow Action Master", act):
+        continue
+    frappe.get_doc({"doctype": "Workflow Action Master",
+                    "workflow_action_name": act}).insert(ignore_permissions=True)
+    print("action", act, "created")
+if frappe.db.exists("Workflow", "KSA PO Approval"):
+    print("workflow exists")
+else:
+    frappe.get_doc({"doctype": "Workflow", "workflow_name": "KSA PO Approval",
+                    "document_type": "Purchase Order", "is_active": 1,
+                    "workflow_state_field": "workflow_state",
+                    "states": [
+                        {"state": "Draft", "doc_status": 0, "allow_edit": "Purchase User"},
+                        {"state": "Pending Manager Approval", "doc_status": 0,
+                         "allow_edit": "Purchase Manager"},
+                        {"state": "Pending Accountant Approval", "doc_status": 0,
+                         "allow_edit": "Accounts Manager"},
+                        {"state": "Approved", "doc_status": 1, "allow_edit": "Accounts Manager"},
+                        {"state": "Rejected", "doc_status": 0, "allow_edit": "Purchase User"},
+                    ],
+                    "transitions": [
+                        {"action": "Request Approval", "state": "Draft",
+                         "next_state": "Pending Manager Approval",
+                         "allowed": "Purchase User",
+                         "condition": "doc.base_grand_total > 10000"},
+                        {"action": "Direct Approve", "state": "Draft", "next_state": "Approved",
+                         "allowed": "Purchase Manager",
+                         "condition": "doc.base_grand_total <= 10000"},
+                        {"action": "Manager Approve", "state": "Pending Manager Approval",
+                         "next_state": "Pending Accountant Approval",
+                         "allowed": "Purchase Manager"},
+                        {"action": "Final Approve", "state": "Pending Accountant Approval",
+                         "next_state": "Approved", "allowed": "Accounts Manager"},
+                        {"action": "Reject", "state": "Pending Manager Approval",
+                         "next_state": "Rejected", "allowed": "Purchase Manager"},
+                        {"action": "Reject", "state": "Pending Manager Approval",
+                         "next_state": "Rejected", "allowed": "Accounts Manager"},
+                        {"action": "Reject", "state": "Pending Accountant Approval",
+                         "next_state": "Rejected", "allowed": "Accounts Manager"},
+                    ]}).insert(ignore_permissions=True)
+    print("workflow created")
+
+# 5. passwords: DO NOT set via update_password() here — it double-fails against
 # v16 __Auth and silently kills working hashes. Use bench set-password instead:
 #   bench --site frontend set-password <user> demo123
 frappe.db.commit()

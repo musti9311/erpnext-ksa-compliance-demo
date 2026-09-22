@@ -1,4 +1,3 @@
-# API — eosb_accrue
 # API - eosb_accrue
 # Posts the monthly EOSB accrual for expat employees: Dr 5130 EOSB Expense / Cr 2330 EOSB
 # Liability. Tier by completed years at period end: <5yr = wage*0.5/12 per month, >=5yr = wage/12.

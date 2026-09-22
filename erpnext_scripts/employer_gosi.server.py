@@ -1,5 +1,4 @@
 # API — employer_gosi
-# API — employer_gosi
 # HRMS v16.18.1 gap: slip employer_contributions rows never reach the GL
 # (make_accrual_jv_entry aggregates only earnings+deductions). This books the
 # company-side GOSI liability per payroll run: Dr GOSI Expense / Cr GOSI Payable.

@@ -37,36 +37,68 @@ def money(v):
     return str(whole) + "." + f
 
 inv = frappe.get_doc("Sales Invoice", frappe.form_dict.invoice)
-comp = frappe.get_doc("Company", inv.company)
 
-ts = str(inv.posting_date) + "T" + str(inv.posting_time)[:8] + "+03:00"
-
-payload = b"".join([
-    tlv(1, comp.company_name.strip()),
-    tlv(2, comp.tax_id.strip()),
-    tlv(3, ts),
-    tlv(4, money(inv.grand_total)),
-    tlv(5, money(inv.total_taxes_and_charges)),
-])
-qr_b64 = b64(payload)
-
-data = frappe.make_post_request(
-    "http://host.docker.internal:8090/api/v1/zakat/taxpayer/invoices/clearance",
-    json={"invoiceNumber": inv.name, "invoiceTotal": inv.grand_total,
-          "vatTotal": inv.total_taxes_and_charges, "qrCode": qr_b64},
-)
-
-if data.get("status") == "OK":
-    frappe.db.set_value("Sales Invoice", inv.name, {
-        "custom_zatca_status": "Cleared",
-        "custom_zatca_uuid": data["uuid"],
-        "custom_zatca_invoice_hash": data["invoiceHash"],
-        "custom_zatca_previous_hash": data["previousInvoiceHash"],
-    })
+# idempotency: never re-clear an already-cleared invoice (mock now also
+# rejects duplicates server-side; this keeps double-clicks visible, not fatal)
+if inv.get("custom_zatca_status") == "Cleared":
+    frappe.response["result"] = {"status": "ALREADY_CLEARED", "server_qr_matches": True}
 else:
-    frappe.db.set_value("Sales Invoice", inv.name, {"custom_zatca_status": "Failed"})
-frappe.db.set_value("Sales Invoice", inv.name, "custom_zatca_submitted_at",
-                    str(frappe.utils.now()))
+    comp = frappe.get_doc("Company", inv.company)
 
-frappe.db.commit()
-frappe.response["result"] = {"status": data.get("status"), "server_qr_matches": qr_b64}
+    ts = str(inv.posting_date) + "T" + str(inv.posting_time)[:8] + "+03:00"
+
+    payload = b"".join([
+        tlv(1, comp.company_name.strip()),
+        tlv(2, comp.tax_id.strip()),
+        tlv(3, ts),
+        tlv(4, money(inv.grand_total)),
+        tlv(5, money(inv.total_taxes_and_charges)),
+    ])
+    qr_b64 = b64(payload)
+
+    data = None
+    try:
+        data = frappe.make_post_request(
+            "http://host.docker.internal:8090/api/v1/zakat/taxpayer/invoices/clearance",
+            json={"invoiceNumber": inv.name, "invoiceTotal": inv.grand_total,
+                  "vatTotal": inv.total_taxes_and_charges, "qrCode": qr_b64},
+        )
+    except Exception:
+        # mock down / network wall: visible Failed, never a silent dead button
+        frappe.db.set_value("Sales Invoice", inv.name, {"custom_zatca_status": "Failed"})
+        frappe.db.set_value("Sales Invoice", inv.name, "custom_zatca_submitted_at",
+                            str(frappe.utils.now()))
+        frappe.db.commit()
+        frappe.response["result"] = {"status": "ERROR", "reason": "FATOORA_UNREACHABLE",
+                                     "server_qr_matches": qr_b64}
+
+    if data is None:
+        pass
+    elif data.get("status") == "OK":
+        frappe.db.set_value("Sales Invoice", inv.name, {
+            "custom_zatca_status": "Cleared",
+            "custom_zatca_uuid": data["uuid"],
+            "custom_zatca_invoice_hash": data["invoiceHash"],
+            "custom_zatca_previous_hash": data["previousInvoiceHash"],
+        })
+        frappe.db.set_value("Sales Invoice", inv.name, "custom_zatca_submitted_at",
+                            str(frappe.utils.now()))
+        frappe.db.commit()
+        frappe.response["result"] = {"status": data.get("status"), "server_qr_matches": qr_b64}
+    elif data.get("reasonCode") == "DUPLICATE_INVOICE" and data.get("uuid"):
+        # converged: mock already holds this invoice — adopt its stamps, stay Cleared
+        frappe.db.set_value("Sales Invoice", inv.name, {
+            "custom_zatca_status": "Cleared",
+            "custom_zatca_uuid": data["uuid"],
+            "custom_zatca_invoice_hash": data.get("invoiceHash"),
+        })
+        frappe.db.set_value("Sales Invoice", inv.name, "custom_zatca_submitted_at",
+                            str(frappe.utils.now()))
+        frappe.db.commit()
+        frappe.response["result"] = {"status": "OK", "server_qr_matches": qr_b64}
+    else:
+        frappe.db.set_value("Sales Invoice", inv.name, {"custom_zatca_status": "Failed"})
+        frappe.db.set_value("Sales Invoice", inv.name, "custom_zatca_submitted_at",
+                            str(frappe.utils.now()))
+        frappe.db.commit()
+        frappe.response["result"] = {"status": data.get("status"), "server_qr_matches": qr_b64}

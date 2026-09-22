@@ -45,3 +45,35 @@ BANK_FIELDS. Residuals we accept + will say out loud in the interview: Administr
 audit comments (Version log backstops), sub-10k fast-track is one manager click (by design —
 materiality tiering). Sandbox gotchas: str.format banned, frappe.db.commit banned inside
 after_save, frappe.user.has_role is an uncalled LocalProxy -> query Has Role via frappe.db.
+
+2026-09-21 (hardening + replay): mock now rejects duplicates (DUPLICATE_INVOICE),
+stamps real UTC acceptedAt, hashes full content (number+totals+QR, not number+total),
+and splits reporting (B2C) from clearance (B2B) over one ledger. zatca_submit
+short-circuits re-submit of Cleared invoices and maps mock-down to Failed instead
+of a dead button — verified live against ACC-SINV-2026-00001 (ALREADY_CLEARED, zero
+mutation). Fresh-site replay now exists: zatca_install.py + m3_install.py (new) and
+the KSA PO Approval workflow block in m4_install.py; all three ran idempotent
+against the live instance. dump_scripts.py covers all 9 Server Scripts + client +
+reports + Print Format HTML and is round-trip stable (it also normalized two
+pre-existing doubled API headers in the repo). m4_e2e_test dates are relative to
+today — the suite had date-rotted (2026-09-20 schedule < today). HR/CoA truth-check:
+leave types (Annual 21/carry, Hajj 10/730d, Maternity 70d, Paternity 3d) and VAT
+accounts (1140 Input / 2110 Output) all verified live; installers look VAT accounts
+up by name so a fresh Saudi-CoA site needs them first. Notification message
+replaced with clean ASCII (live copy carries a mojibake dash).
+
+2026-09-22 (fresh-site replay, site `replay`): installers create everything from
+zero — with five fixes the live instance never needed: (1) Workflow states/actions
+are Link masters (Workflow State / Workflow Action Master) — create them before the
+workflow or the insert dies; (2) server-side invoice insert does NOT copy
+Sales-Taxes-Template rows (the desk UI does) — append tax rows explicitly or VAT
+books 0; (3) bench console has no request language — set frappe.local.lang or an
+UnboundLocalError in locale kills the run (installers now self-guard; console-piped
+scripts must avoid nested functions reading exec-locals); (4) fresh sites need FY,
+SAR default currency, Standard Selling price list, group/leaf selling fixtures, UOM,
+Item Group, Warehouse Type before any invoice; (5) m4_install's %VAT% fallback
+grabbed VAT Output for the purchase template — now prefers %Input%. Replay proof:
+fresh invoice cleared via bench request with genesis prevHash, re-submit returned
+ALREADY_CLEARED with the mock ledger at exactly 1, and a 36k quoteless PO walked
+Request→Manager legs as seeded users then died at Final Approve on the quote rule.
+Mock round-trip suite (clear/dupe/reject/reporting/chain) green independently.

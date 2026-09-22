@@ -3,9 +3,14 @@
 # R1-R6 are the exact repros from the 14-Sep read-only audit (B1-B4 + quote
 # hygiene + default_bank_account watchlist).
 import requests, json
+from datetime import date, timedelta
 
 BASE = "http://localhost:8080"
 VAT = "VAT 15% - ATE - ATE"
+# date-rot proof: hardcoded 2026-09 dates died the day they passed (Required By
+# cannot be before Date) — always schedule/post relative to today.
+TODAY = date.today().isoformat()
+SCHED = (date.today() + timedelta(days=60)).isoformat()
 
 def login(u, p="demo123"):
     s = requests.Session()
@@ -36,7 +41,7 @@ amina = login("accounts.manager@alrehab-demo.example")
 
 def make_po(session, supplier, item, qty, rate, **kw):
     po = {"supplier": supplier, "company": "Al-Rehab Trading Est.",
-          "schedule_date": "2026-09-20",
+          "schedule_date": SCHED,
           "items": [{"item_code": item, "qty": qty, "rate": rate, "uom": "Unit",
                      "description": item}], **kw}
     r = session.post(f"{BASE}/api/resource/Purchase Order", json=po).json()
@@ -108,7 +113,7 @@ if po3:
 
 # ---- T5/T6/T8: invoice matching ----------------------------------------------------------
 pi = {"supplier": "Riyadh Fresh Supplies", "company": "Al-Rehab Trading Est.",
-      "posting_date": "2026-09-14", "bill_no": "FAKE-RAND-002",
+       "posting_date": TODAY, "bill_no": "FAKE-RAND-002",
       "items": [{"item_code": "Basmati Rice 5kg", "qty": 50, "rate": 35, "uom": "Unit", "description": "x"}],
       "taxes_and_charges": VAT}
 r = amina.post(f"{BASE}/api/resource/Purchase Invoice", json=pi).json()
@@ -120,7 +125,7 @@ po_full = get_po(admin, po2["name"])
 if po_full.get("docstatus") == 1:
     item = po_full["items"][0]
     pi = {"doctype": "Purchase Invoice", "supplier": "Riyadh Fresh Supplies", "company": "Al-Rehab Trading Est.",
-          "posting_date": "2026-09-14", "bill_no": "RFS-INV-0100",
+          "posting_date": TODAY, "bill_no": "RFS-INV-0100",
           "items": [{"item_code": "Basmati Rice 5kg", "qty": 800, "rate": 45, "uom": "Unit",
                      "description": "Basmati Rice 5kg", "purchase_order": po2["name"], "po_detail": item["name"]}],
           "taxes_and_charges": VAT}
@@ -169,7 +174,7 @@ if po_usd:
 if po_full.get("docstatus") == 1:
     tok = po_full["items"][0]["name"]
     pi = {"supplier": "Riyadh Fresh Supplies", "company": "Al-Rehab Trading Est.",
-          "posting_date": "2026-09-14", "bill_no": "TOKEN-LAUNDER-3",
+          "posting_date": TODAY, "bill_no": "TOKEN-LAUNDER-3",
           "items": [
               {"item_code": "Espresso Machine Pro", "qty": 30, "rate": 12500, "uom": "Nos", "description": "laundered"},
               {"item_code": "Basmati Rice 5kg", "qty": 1, "rate": 35, "uom": "Unit", "description": "token",

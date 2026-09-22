@@ -93,8 +93,8 @@ backstops them); the ≤10k fast-track is one click by design.
 ## What's inside
 
 ```
-pwd.yml                  Docker compose stack (ERPNext v16.34.1 + HRMS v16.18.1 + MariaDB + redis;
-                         init-hrms one-shot makes the HRMS install survive container rebuilds)
+pwd.yml.example          sanitized compose stack (copy to pwd.yml; real file stays
+                         git-ignored with local credentials)
 qr-generator/            M1: standalone TLV→Base64→QR signer (fetches live from ERPNext API)
 mock_fatoora/main.py     M2a: Phase 2 clearance/reporting API contract simulation
 erpnext_scripts/         M2b–d + M3: live ERPNext customizations, dumped from the instance
@@ -110,8 +110,11 @@ erpnext_scripts/         M2b–d + M3: live ERPNext customizations, dumped from 
   po_submit_gate.server.py M4: submit only via workflow (docstatus escape hatch closed)
   pending_freeze.server.py M4: content frozen while a PO is pending approval (TOCTOU)
   bank_change_audit.server.py M4: IBAN/bank-account retarget -> visible audit comment
-  m4_install.py            idempotent installer (custom fields + Server Scripts + VAT template)
+  m4_install.py            idempotent installer (custom fields + Server Scripts + VAT template + workflow)
   m4_e2e_test.py           29-check fraud regression suite (runs as Sami/Kareem/Amina)
+  zatca_install.py         idempotent installer (ZATCA fields + scripts + print format + VAT template)
+  m3_install.py            idempotent installer (Employee fields + GOSI/EOSB scripts + notification + reports + leave types)
+  zatca_print_format.html  ZATCA Phase 1 Invoice print format (QR as data-URI)
 dump_scripts.py          re-export all of the above from a running instance
 ACC-SINV-2026-00001_ZATCA.pdf   M1 evidence: printed invoice with embedded QR
 DECISIONS.md              decision journal — what was chosen and why
@@ -121,23 +124,38 @@ DECISIONS.md              decision journal — what was chosen and why
 
 ```bash
 # 1. ERPNext stack (HRMS is installed automatically on first up by the init-hrms service)
+#    pwd.yml itself is git-ignored (local credentials) — copy the example first.
 docker desktop start
 cd ZATCA-Compliance-Demo
+cp pwd.yml.example pwd.yml
 docker compose -f pwd.yml -p erpnext-zatca-demo up -d      # ~40s; first ever run: +10–20 min HRMS install; http://localhost:8080
 
 # 2. Mock Fatoora
-cd mock_fatoora && pip install fastapi "uvicorn[standard]" && uvicorn main:app --port 8090
+cd mock_fatoora && pip install -r requirements.txt && uvicorn main:app --port 8090
 
-# 3. Standalone signer (needs requests)
-cd qr-generator && python tlv_generator.py
+# 3. Standalone signer
+cd qr-generator && pip install -r requirements.txt && python tlv_generator.py
 ```
 
 Login `Administrator` / `admin`. Demo personas for the M4 chain (password `demo123`):
 `buyer@…` Sami, `purchase.manager@…` Kareem, `accounts.manager@…` Amina.
 To replay the fraud suite against a running instance: `python erpnext_scripts/m4_e2e_test.py`
-(recreates its own POs/invoices; idempotent). The customizations (Server Scripts, Client Script,
-ZATCA custom fields, Print Format, VAT templates/accounts) live **inside the instance** —
-to recreate from scratch on a fresh site, follow `DECISIONS.md` + `erpnext_scripts/`.
+(recreates its own POs/invoices; idempotent; dates are relative to today so it never date-rots).
+To rebuild the customizations on a fresh site, copy each installer + its sibling
+files to `/tmp` in the backend container and paste
+`exec(open("/tmp/<name>_install.py").read())` into
+`bench --site frontend console` — order: `zatca_install.py`, `m3_install.py`,
+`m4_install.py`. Proven 2026-09-22 on a blank `replay` site (frappe + erpnext + hrms,
+seeded company/accounts): installers create everything from zero, a fresh invoice
+clears against the mock with a genesis hash chain, re-submit short-circuits, and a
+36k quoteless PO is stopped at Final Approve. Fresh sites need the seed prerequisites
+first (Fiscal Year, SAR currency + Price List, selling/buying groups, UOM, Item Group,
+Warehouse Type) — the demo instance already has them, which is why replay there is
+one step.
+Caveat: the installers look up VAT accounts by name (`VAT Output`, `VAT Input`,
+fallback any `%VAT%`); a fresh Saudi-CoA site needs those accounts first.
+`dump_scripts.py` re-exports all 9 Server Scripts + Client Script + both reports +
+the Print Format HTML from a running instance (round-trip stable).
 
 ## ZATCA notes (the stuff the QR actually guarantees)
 
@@ -145,10 +163,13 @@ to recreate from scratch on a fresh site, follow `DECISIONS.md` + `erpnext_scrip
   total — Base64'd, so an inspector verifies offline with no API or login.
 - **Timestamp**: local KSA time with explicit `+03:00` offset. Never `Z` on local time —
   `Z` is a UTC *claim* and would falsify the record by 3–4 hours.
-- **Hash**: SHA-256 over the TLV payload; the mock chains each accepted invoice's hash into
-  the next response — tampering with any earlier field visibly breaks the chain.
-- **Phase 2 workflow split**: B2B = clearance (this demo's path), B2C = reporting; both
-  endpoints share the ledger.
+- **Hash**: SHA-256 over the full submitted content (number + totals + QR); the mock chains
+  each accepted invoice's hash into the next response — tampering with any earlier
+  field visibly breaks the chain.
+- **Phase 2 workflow split**: B2B = clearance, B2C = reporting; separate endpoints,
+  one shared ledger. Duplicate submissions are rejected server-side
+  (`DUPLICATE_INVOICE`), and the client short-circuits re-submit of Cleared
+  invoices (`ALREADY_CLEARED`) — verified live.
 
 ## Honest limitations
 
@@ -156,10 +177,9 @@ to recreate from scratch on a fresh site, follow `DECISIONS.md` + `erpnext_scrip
   needs a company CR, ZATCA device certificates and CSID — impossible for an individual to
   hold, so the workflow, failure handling and hash chain are real, the counterparty is
   simulated. The client is endpoint-switchable for a real integration.
-- **No re-submission guard**: our mock happily accepts the same invoice twice (real Fatoora
-  rejects duplicates). `zatca_status` makes double-clearing visible, not impossible —
-  idempotency is on the roadmap.
-- `acceptedAt` in the mock is a stub string, not a server timestamp.
+- **Re-submission guard**: the mock rejects duplicates and already-Cleared invoices
+  short-circuit client-side; mock downtime surfaces as `Failed` + `FATOORA_UNREACHABLE`,
+  never a dead button. `acceptedAt` is a real UTC server timestamp.
 - `ACC-SINV-2026-00002` cleared *before* the VAT guard existed and shows 0.00 VAT — kept
   deliberately as the "why the guard was needed" exhibit.
 - Container's wkhtmltopdf can't fetch internal URLs (Docker network wall): QR is embedded

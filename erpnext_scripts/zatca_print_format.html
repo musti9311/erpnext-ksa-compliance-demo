@@ -1,0 +1,32 @@
+
+<div style="font-family:Arial; font-size:13px;">
+  <h2 style="text-align:center;">{{ doc.company }}</h2>
+  <p style="text-align:center;">VAT No: 310123456700003 · Jeddah, KSA</p>
+  <hr>
+  <table width="100%"><tr>
+    <td><b>TAX INVOICE</b><br>{{ doc.name }}</td>
+    <td><b>Bill To</b><br>{{ doc.customer_name }}<br>VAT No: {{ doc.tax_id }}</td>
+    <td align="right"><b>Date</b><br>{{ doc.posting_date }}</td>
+  </tr></table>
+  <hr>
+  <table width="100%">
+    <tr><th align="left">Item</th><th>Qty</th><th>Rate</th><th>Amount</th></tr>
+    {% for row in doc.items %}
+    <tr><td>{{ row.item_name }}</td><td align="center">{{ row.qty }}</td>
+        <td align="center">{{ row.rate }}</td><td align="right">{{ row.amount }}</td></tr>
+    {% endfor %}
+  </table>
+  <hr>
+  <table width="40%" align="right">
+    <tr><td>Net Total</td><td align="right">{{ doc.net_total }}</td></tr>
+    {% for t in doc.taxes %}
+    <tr><td>VAT {{ t.rate }}%</td><td align="right">{{ t.tax_amount }}</td></tr>
+    {% endfor %}
+    <tr><td><b>Total (incl. VAT)</b></td><td align="right"><b>{{ doc.grand_total }}</b></td></tr>
+  </table>
+  <hr>
+  <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAhIAAAISAQAAAACxRhsSAAAFJUlEQVR4nO1dS47jOAylZAO1TG7QR0luVlezjzI3iJcFVMABSVGfTKqAaccNteq9hRPLMmFTBCVKj3Jg2os17hZBBBktoI8W0EcL6KMF9NEC+mgBfbSAPlpAHz3rIyTMRKv+Od8DrXKgbSY9VdB6JgrXzetfX/wc+xB33i+AjD71QSygi/7cJjl+El1uZAc/nTgd+JO8nt+29PIuETKGt9ObGuYk0f/EvJw4/VMsp0+qDmKnehV22nXbxpFlXG7S2zvClbTzf8umrGV/4Dl+A5Dxk/Rx0o7+HngRE13DTOGdP+TfG+vpH3qO/w/IGFcfc/o9SU++yax9kE59O0vZjcJlIQqpj78HljKtxx2+S4SM0fWxWpRPuWefOLz/I0a8pUO4bm9WpmMBC/9f/hy7EPfdroCMnv0pl4L110fg9TylEYAddARwJjtw6037eZcIGT8i3icN9T3e19jeoWUS78tJqWyzAb28S4SMwe2Uzf64TI76rKkhW6xU8VAr39vLu0TIGFYflJyiuUgSj5mdqp+qxVoVmdg3e7aZVNhpx20bR+z3J1Y/6VP81HjWsvZkF9SA4U87b9s47HoUmRGWjt78Kelw1Sq7F82Lp+j3e23bOKKMyfxpuKpT3ea0PJpm/Ev0JKSVc16oev1z7EDcc3MCZHSuj3tacRKE9xwuZYIUrb+Y9bRY7BHPsQNxz80JkNGnPsiZJjk+IkUK9VP0ZAOC5HJtuFrd28u7RMgYVh+UBpmFvsfJYu1qYkmlKh5WpXgffKmu2zYO7E/Jgv5mOv8hjtJTuxn8057bNg4oY9Nl/DdmllX9wkRloUqREPh1zf8qAdayhWDx/tLlu+xB3HW3ATIOnefnvDJalkytty9TUsnvYnz6HWCnB45PuerKvWf3dVNbj/Kp01KGfv8pYKdHr++zm6ill+SyvIyas6LcdhHv/xew08PyTa/a0W86SA2hjE+tTAIsnVP1NBSpd5KB64ufYx/izvsFkNE1/3S9vnEoq6Xr+Ua0XoXJn/ins5SxMvutnvH+X/YcETIaQB/f86VI+/OUVporlfnTZikK/f5TwMYOjaO4sKPNWPW6kfp1COv5+4X6h/HpM8BOD+NLUaaZLmasyTALvb+aA0ibUsCffgHY6cE86VNOiKpSo+hxjSpx/eBPvwLs9MB5qamilDon2nnS9HjVxwLo958BdnocT5o9Uloa9smDZ/UqGJ9+B9jp0XwpavLz8l5S6kDrJCnnq8CfPgPs9MA4inzxPmf0ZdutqzQJfrDTp4CdHhhHTVWAX/FPy+i1rJvaBazvfwXY6bF5J5fCjhaGn7hXSzmxxKnM8a8Grq9/jh2Ie25OgIz++VKX3MfnROiHWdM045/5fxif9ty2cWC+FGeGackxedhFuowUwOvrum3jQDKomhK9POwfkfmnxYsW/mnO6EMeX69tGwdd3xfUZP0qra+wqOt8U9hp120bB5JBZp0Jk0f+hSdt2dBlk37f5CcNDeBP+23bOPD3Tqj+okTh+PtItYqo/Cr6/V7bNo79vROqv7yT4PlReZc05J3037ZxdBlB00tkL3SPnj7lU2iaMC3bTdkw4APfOfsL2/YvlTE/FlyW+8z6RQlBuNzukn2iW53fZ/0XiGab4+e+3iVCxg/6Ht9NSpuNegqzv2wzCf5p/20bB473KadEVxtKmdn67KrnRWM9qvO2jQPJCO2nS34Hay/vEiGjAfTRAvpoAX20gD5aQB8toI8W0EcL6KPFK/TxL/OAVhxgkb9IAAAAAElFTkSuQmCC" width="150"/>
+  <p><b>ZATCA Phase 1</b> — QR encodes seller, VAT number, timestamp, total and VAT total
+  (TLV/Base64). Demo: QR for ACC-SINV-2026-00001 is embedded; production signer attaches
+  per-invoice.</p>
+</div>
