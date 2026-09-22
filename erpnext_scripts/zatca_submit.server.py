@@ -80,6 +80,9 @@ else:
             "custom_zatca_uuid": data["uuid"],
             "custom_zatca_invoice_hash": data["invoiceHash"],
             "custom_zatca_previous_hash": data["previousInvoiceHash"],
+            # renderer-ready QR image for the bilingual print format (v1 keeps
+            # its static evidence image); empty when the mock lacks the QR libs
+            "custom_zatca_qr_image": data.get("qrDataUri") or "",
         })
         frappe.db.set_value("Sales Invoice", inv.name, "custom_zatca_submitted_at",
                             str(frappe.utils.now()))
@@ -91,6 +94,7 @@ else:
             "custom_zatca_status": "Cleared",
             "custom_zatca_uuid": data["uuid"],
             "custom_zatca_invoice_hash": data.get("invoiceHash"),
+            "custom_zatca_qr_image": data.get("qrDataUri") or "",
         })
         frappe.db.set_value("Sales Invoice", inv.name, "custom_zatca_submitted_at",
                             str(frappe.utils.now()))

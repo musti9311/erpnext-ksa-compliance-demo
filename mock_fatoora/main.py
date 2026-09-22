@@ -5,6 +5,19 @@ import uuid
 
 from fastapi import FastAPI
 
+try:
+    import base64 as _b64
+    import io as _io
+    import qrcode as _qr
+
+    def qr_data_uri(text: str) -> str:
+        buf = _io.BytesIO()
+        _qr.make(text).save(buf, format="PNG")
+        return "data:image/png;base64," + _b64.b64encode(buf.getvalue()).decode("ascii")
+except ImportError:  # mock stays runnable without the QR extras
+    def qr_data_uri(text: str) -> str:
+        return ""
+
 app = FastAPI(title="Mock Fatoora (ZATCA Phase 2 simulation)")
 
 LEDGER = []   # accepted invoices — our proof of the hash chain
@@ -33,7 +46,7 @@ def _accept(payload: dict, kind: str):
         prev = SEEN[inv]
         return {"status": "ERROR", "reasonCode": "DUPLICATE_INVOICE",
                 "errorDescription": "Invoice already cleared/reported",
-                **{k: prev[k] for k in ("uuid", "invoiceHash") if k in prev}}
+                **{k: prev[k] for k in ("uuid", "invoiceHash", "qrDataUri") if k in prev}}
     # deterministic demo reject (kept from v1 so ACC-SINV-...00008 stays retryable)
     if inv.endswith("3") or inv.endswith("8"):
         return {"status": "ERROR",
@@ -49,6 +62,9 @@ def _accept(payload: dict, kind: str):
         "invoiceHash": sha256hex(canonical),
         "previousInvoiceHash": previous_hash(),
         "acceptedAt": now_utc(),
+        # renderer-ready QR: the bilingual print format embeds this per invoice
+        # (the v1 format keeps its static evidence image for ACC-SINV-2026-00001)
+        "qrDataUri": qr_data_uri(str(payload.get("qrCode", ""))),
     }
     LEDGER.append(entry)
     SEEN[inv] = entry
@@ -78,6 +94,7 @@ if __name__ == "__main__":  # ponytail: minimal self-check, fails if logic break
          "vatTotal": 168.0, "qrCode": "abc"}
     r1 = _accept(dict(p), "clearance")
     assert r1["status"] == "OK" and r1["acceptedAt"] != "now", r1
+    assert r1["qrDataUri"].startswith("data:image/png;base64,"), "renderer-ready QR missing"
     r2 = _accept(dict(p), "clearance")
     assert r2["status"] == "ERROR" and r2["reasonCode"] == "DUPLICATE_INVOICE", r2
     r3 = _accept({"invoiceNumber": "X8", "invoiceTotal": 1}, "reporting")

@@ -115,6 +115,13 @@ erpnext_scripts/         M2b–d + M3: live ERPNext customizations, dumped from 
   zatca_install.py         idempotent installer (ZATCA fields + scripts + print format + VAT template)
   m3_install.py            idempotent installer (Employee fields + GOSI/EOSB scripts + notification + reports + leave types)
   zatca_print_format.html  ZATCA Phase 1 Invoice print format (QR as data-URI)
+  zatca_print_format_ar.html  ZATCA Bilingual Invoice (AR/EN, RTL, per-invoice QR)
+  seed_demo.py             one-command rebuild: fixtures -> installers -> VAT invoice
+                         + workflow/quote-guard proof (6 checks, blank-site proven)
+e-invoice/               Phase 2 payload: invoice JSON -> UBL 2.1 XML + 3-way proof
+  ubl_generator.py         stdlib-only; parties, +03:00 datetime, VAT math (unsigned)
+  ubl_validate.py          ERPNext <-> XML <-> QR agreement (fails loud on drift)
+docs/README_AR.md        one-page Arabic summary (MSA, portal vocabulary)
 dump_scripts.py          re-export all of the above from a running instance
 ACC-SINV-2026-00001_ZATCA.pdf   M1 evidence: printed invoice with embedded QR
 DECISIONS.md              decision journal — what was chosen and why
@@ -170,6 +177,15 @@ the Print Format HTML from a running instance (round-trip stable).
   one shared ledger. Duplicate submissions are rejected server-side
   (`DUPLICATE_INVOICE`), and the client short-circuits re-submit of Cleared
   invoices (`ALREADY_CLEARED`) — verified live.
+- **UBL payload** (`e-invoice/`): the XML that would actually clear Phase 2 —
+  parties + VAT IDs, issue datetime, line/document VAT math — generated stdlib-only
+  from the invoice JSON. `ubl_validate.py` proves ERPNext, XML and QR all agree
+  (ran green on `ACC-SINV-2026-00001`: 1120.00 / 168.00 / 1288.00; a tampered
+  total fails loud). Unsigned by design — see limits.
+- **Bilingual invoice**: `ZATCA Bilingual Invoice` print format (Arabic RTL block,
+  MSA labels, per-invoice QR from `custom_zatca_qr_image`, clearance UUID line)
+  plus an Arabic Iqama alert twin. Browser print proven; container PDF needs an
+  Arabic font the stock image lacks (see limits).
 
 ## Honest limitations
 
@@ -177,6 +193,12 @@ the Print Format HTML from a running instance (round-trip stable).
   needs a company CR, ZATCA device certificates and CSID — impossible for an individual to
   hold, so the workflow, failure handling and hash chain are real, the counterparty is
   simulated. The client is endpoint-switchable for a real integration.
+  Same boundary for `e-invoice/`: the UBL structure + math are real, the XML
+  signature envelope (UUID, hash chain, ICV, signed properties) needs CSID-held keys.
+- **Bilingual PDF caveat**: the AR/EN print format renders fully in the browser
+  (verified HTML: Arabic + QR + UUID), but container-side PDF (WeasyPrint) shows
+  tofu for Arabic — the stock image ships zero Arabic fonts. Use browser print
+  for the Arabic PDF until fonts are added to the image.
 - **Re-submission guard**: the mock rejects duplicates and already-Cleared invoices
   short-circuit client-side; mock downtime surfaces as `Failed` + `FATOORA_UNREACHABLE`,
   never a dead button. `acceptedAt` is a real UTC server timestamp.

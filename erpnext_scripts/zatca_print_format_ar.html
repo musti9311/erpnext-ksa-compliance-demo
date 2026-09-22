@@ -1,0 +1,46 @@
+
+<div style="font-family:Arial; font-size:13px;">
+  <h2 style="text-align:center;">{{ doc.company }}</h2>
+  <p style="text-align:center;">VAT No / الرقم الضريبي: {{ frappe.db.get_value("Company", doc.company, "tax_id") }} · Jeddah, KSA</p>
+  <hr>
+  <table width="100%"><tr>
+    <td><b>TAX INVOICE / فاتورة ضريبية</b><br>{{ doc.name }}</td>
+    <td><b>Bill To / العميل</b><br>{{ doc.customer_name }}</td>
+    <td align="right"><b>Date / التاريخ</b><br>{{ doc.posting_date }}</td>
+  </tr></table>
+  <hr>
+  <div dir="rtl" lang="ar">
+  <table width="100%">
+    <tr><th align="right">الصنف</th><th>الكمية</th><th>السعر</th><th>المبلغ</th></tr>
+    {% for row in doc.items %}
+    <tr><td align="right">{{ row.item_name }}</td><td align="center">{{ row.qty }}</td>
+        <td align="center">{{ row.rate }}</td><td align="left">{{ row.amount }}</td></tr>
+    {% endfor %}
+  </table>
+  </div>
+  <hr>
+  <table width="100%"><tr>
+    <td valign="top">
+      {% if doc.custom_zatca_qr_image %}
+      <img src="{{ doc.custom_zatca_qr_image }}" width="150"/>
+      {% else %}
+      <p>QR attaches on clearance / يظهر رمز الاستجابة السريعة عند التخليص</p>
+      {% endif %}
+    </td>
+    <td valign="top">
+      <table width="100%">
+        <tr><td>Net Total / الإجمالي قبل الضريبة</td><td align="right">{{ doc.net_total }}</td></tr>
+        {% for t in doc.taxes %}
+        <tr><td>VAT {{ t.rate }}% / ضريبة القيمة المضافة</td><td align="right">{{ t.tax_amount }}</td></tr>
+        {% endfor %}
+        <tr><td><b>Total incl. VAT / الإجمالي شامل الضريبة</b></td><td align="right"><b>{{ doc.grand_total }}</b></td></tr>
+      </table>
+    </td>
+  </tr></table>
+  <hr>
+  <p><b>ZATCA Phase 1</b> — QR encodes seller, VAT number, timestamp, total and VAT total
+  (TLV/Base64) / يشفر الرمز اسم البائع والرقم الضريبي والوقت والإجمالي والضريبة.</p>
+  {% if doc.custom_zatca_uuid %}
+  <p>Clearance UUID: {{ doc.custom_zatca_uuid }}</p>
+  {% endif %}
+</div>

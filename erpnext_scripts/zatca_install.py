@@ -1,12 +1,14 @@
 # ZATCA installer (idempotent, safe to re-run). Creates if missing:
-#  1. 5 custom_zatca_* fields on Sales Invoice
+#  1. 6 custom_zatca_* fields on Sales Invoice
 #  2. Server Scripts: zatca_submit (API), vat_guard (Sales Invoice, Before Validate)
 #  3. Client Script: zatca_button on Sales Invoice
-#  4. Print Format: ZATCA Phase 1 Invoice (from zatca_print_format.html)
+#  4. Print Formats: ZATCA Phase 1 Invoice (EN evidence) + ZATCA Bilingual Invoice
+#     (AR/EN, per-invoice QR from custom_zatca_qr_image; no slash in the name —
+#     slashes break the print-view format selector)
 #  5. Sales VAT 15% template (needs a VAT Output account in the CoA first)
 # Run: copy this file + zatca_submit.server.py + vat_guard.server.py +
-# zatca_button.client.js + zatca_print_format.html to /tmp inside the
-# backend container, then:  bench --site frontend console
+# zatca_button.client.js + zatca_print_format.html + zatca_print_format_ar.html
+# to /tmp inside the backend container, then:  bench --site frontend console
 # and paste:  exec(open("/tmp/zatca_install.py").read())
 import frappe
 
@@ -24,6 +26,7 @@ FIELDS = [
     ("custom_zatca_invoice_hash", "ZATCA Invoice Hash", "Data", None, None),
     ("custom_zatca_previous_hash", "ZATCA Previous Hash", "Data", None, None),
     ("custom_zatca_submitted_at", "ZATCA Submitted At", "Data", None, None),
+    ("custom_zatca_qr_image", "ZATCA QR Image", "Long Text", None, None),
 ]
 for fieldname, label, fieldtype, options, after in FIELDS:
     if frappe.db.exists("Custom Field", {"dt": "Sales Invoice", "fieldname": fieldname}):
@@ -78,17 +81,19 @@ else:
                     "script": button}).insert(ignore_permissions=True)
     print("zatca_button created")
 
-# 4. print format (QR embedded as data-URI; container wkhtmltopdf can't fetch
+# 4. print formats (QR embedded as data-URI; container wkhtmltopdf can't fetch
 # internal URLs — see DECISIONS.md)
-if frappe.db.exists("Print Format", "ZATCA Phase 1 Invoice"):
-    print("print format exists")
-else:
-    html = open("%s/zatca_print_format.html" % HERE).read()
-    frappe.get_doc({"doctype": "Print Format", "name": "ZATCA Phase 1 Invoice",
+for pf_name, pf_file in [("ZATCA Phase 1 Invoice", "zatca_print_format.html"),
+                         ("ZATCA Bilingual Invoice", "zatca_print_format_ar.html")]:
+    if frappe.db.exists("Print Format", pf_name):
+        print(pf_name, "exists")
+        continue
+    html = open("%s/%s" % (HERE, pf_file)).read()
+    frappe.get_doc({"doctype": "Print Format", "name": pf_name,
                     "doc_type": "Sales Invoice", "module": "Accounts",
                     "print_format_type": "Jinja", "standard": "No",
                     "html": html}).insert(ignore_permissions=True)
-    print("print format created")
+    print(pf_name, "created")
 
 # 5. sales VAT template
 if frappe.db.exists("Sales Taxes and Charges Template", {"title": "VAT 15%"}):

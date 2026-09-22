@@ -55,11 +55,16 @@ for rname, fname in reports:
         f.write(head + d.get("query", ""))
     print("saved", fname, len(d.get("query", "")), "chars")
 
-# Print Format: dump the Jinja HTML for the installer
-r = opener.open("http://localhost:8080/api/resource/Print%20Format/ZATCA%20Phase%201%20Invoice",
-                timeout=30)
-d = json.loads(r.read().decode())["data"]
-with open(os.path.join(OUT, "zatca_print_format.html"), "w", encoding="utf-8") as f:
-    f.write(d.get("html") or "")
-print("saved zatca_print_format.html", len(d.get("html") or ""), "chars")
+# Print Formats: dump the Jinja HTML for the installer
+for pf_name, pf_file in [("ZATCA Phase 1 Invoice", "zatca_print_format.html"),
+                         ("ZATCA Bilingual Invoice", "zatca_print_format_ar.html")]:
+    try:
+        r = opener.open("http://localhost:8080/api/resource/Print%20Format/" +
+                        urllib.parse.quote(pf_name, safe=""), timeout=30)
+        d = json.loads(r.read().decode())["data"]
+        with open(os.path.join(OUT, pf_file), "w", encoding="utf-8") as f:
+            f.write(d.get("html") or "")
+        print("saved", pf_file, len(d.get("html") or ""), "chars")
+    except Exception as e:
+        print("skip", pf_file, str(e)[:100])
 print("DONE")

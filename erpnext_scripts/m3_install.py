@@ -67,6 +67,24 @@ else:
                    ).insert(ignore_permissions=True)
     print("notification created")
 
+# 3b. Arabic twin (same trigger, MSA wording in standard portal vocabulary)
+if frappe.db.exists("Notification", "KSA Iqama Expiry Alert AR"):
+    print("AR notification exists")
+else:
+    frappe.get_doc({"doctype": "Notification", "name": "KSA Iqama Expiry Alert AR",
+                    "document_type": "Employee", "event": "Days Before",
+                    "days_in_advance": 30, "date_changed": "iqama_expiry",
+                    "channel": "System Notification", "enabled": 1,
+                    "subject": "اقتراب انتهاء الإقامة: {{ doc.employee_name }}",
+                    "message": "<p><strong>الإقامة على وشك الانتهاء</strong></p>"
+                               "<p>{{ doc.employee_name }} ({{ doc.name }}) - رقم الإقامة "
+                               "{{ doc.iqama_number or '-' }} تنتهي في "
+                               "<strong>{{ doc.iqama_expiry }}</strong>. "
+                               "يرجى بدء التجديد الآن.</p>",
+                    "recipients": [{"receiver_by_role": "HR Manager"}]}
+                   ).insert(ignore_permissions=True)
+    print("AR notification created")
+
 # 4. query reports (query = .sql file minus the -- filter header lines)
 REPORTS = [
     ("GOSI Monthly Contribution Register", "Salary Slip", "gosi_register.sql",

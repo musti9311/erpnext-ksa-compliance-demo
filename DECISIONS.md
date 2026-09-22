@@ -77,3 +77,20 @@ fresh invoice cleared via bench request with genesis prevHash, re-submit returne
 ALREADY_CLEARED with the mock ledger at exactly 1, and a 36k quoteless PO walked
 Request→Manager legs as seeded users then died at Final Approve on the quote rule.
 Mock round-trip suite (clear/dupe/reject/reporting/chain) green independently.
+
+2026-09-22 (one-command demo + AR + UBL): seed_demo.py consolidates the scattered
+replay scripts (fixtures -> 3 installers -> VAT invoice -> PO proof, 6 checks) and
+went 6/6 on a twice-dropped blank site. Two gotchas it owns: console-piped scripts
+must anchor shared state on frappe (nested defs can't see exec-locals — bit twice),
+and frappe.clear_cache() is mandatory after the installers or guards silently never
+fire in-process (a quoteless PO "slipped through" once; cancelled after proof).
+Bilingual: mock returns renderer-ready qrDataUri (qrcode dep, import-guarded),
+zatca_submit stamps custom_zatca_qr_image, new ZATCA Bilingual Invoice format renders
+AR/EN + per-invoice QR + UUID (browser HTML proven; container PDF tofus Arabic —
+zero Arabic fonts in the stock image, documented). Slash in a Print Format name
+breaks the print-view selector — renamed to slash-free. Arabic strings kept to
+standard ZATCA/portal vocabulary; full UI translation explicitly out. UBL:
+stdlib-only generator (parties, +03:00, VAT math) + validator proving
+ERPNext<->XML<->QR agreement on ACC-SINV-2026-00001 (1120/168/1288); tampered total
+fails loud. Unsigned by design (CSID keys needed). PowerShell `>` writes UTF-16 —
+write XML artifacts from Python, never redirect.
