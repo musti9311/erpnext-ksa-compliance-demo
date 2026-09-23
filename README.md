@@ -18,25 +18,76 @@ all green. Arabic summary: [docs/README_AR.md](docs/README_AR.md).
 > Built as a portfolio project (Sept 2026). All data is fictional (Al-Rehab Trading Est.,
 > Jeddah). No real CR, no real tax authority connection — see [Honest limitations](#honest-limitations).
 
-## Architecture
+## Contents
 
-```
-ERPNext v16 (Docker, :8080)                    Mock Fatoora (FastAPI, :8090)
-┌─────────────────────────────┐    HTTP       ┌──────────────────────────┐
-│ Sales Invoice               │──submit──────▶│ /invoices/clearance      │
-│  • zatca_submit (API script)│  (out of      │ /invoices/reporting      │
-│  • vat_guard (validate)     │   container   │ • deterministic rejects  │
-│  • zatca_button (client JS) │   via         │ • SHA-256 hash chain     │
-│  • ZATCA Status/UUID/hashes │   host.       │ • UUID "stamps"          │
-│  • Print Format w/ QR       │   docker.     └──────────────────────────┘
-└─────────────────────────────┘   internal
-        ▲
-        │ TLV(Base64) QR payload — identical from both signers:
-qr-generator/tlv_generator.py  (standalone Python signer, base64 lib)
-erpnext_scripts/zatca_submit   (in-sandbox signer, hand-rolled base64)
+- [60-second tour](#60-second-tour)
+- [Quickstart](#quickstart)
+- [E-invoicing (M1–M2)](#e-invoicing-m1m2)
+- [Payroll (M3)](#payroll-m3)
+- [Procurement controls (M4)](#procurement-controls-m4)
+- [What's inside](#whats-inside)
+- [Honest limitations](#honest-limitations)
+
+## 60-second tour
+
+| Area | What it proves | Where to look |
+|---|---|---|
+| Tax invoices | A QR any inspector can verify offline, plus a simulated government approval flow | [E-invoicing](#e-invoicing-m1m2), invoice `ACC-SINV-2026-00001` |
+| Payroll | Correct Saudi pension splits for 10 staff, posted to the real ledger | [Payroll](#payroll-m3), GOSI register report |
+| Purchasing | 7 fraud controls that survived 29 simulated attacks | [Procurement](#procurement-controls-m4), `m4_e2e_test.py` |
+| Trust me, verify me | The whole demo rebuilds from zero in ~10 minutes | [Quickstart](#quickstart), `seed_demo.py` |
+
+## Quickstart
+
+```bash
+# 1. ERPNext stack (HRMS installs automatically on first up via the init-hrms service)
+#    pwd.yml itself is git-ignored (local credentials) — copy the example first.
+docker desktop start
+cd ZATCA-Compliance-Demo
+cp pwd.yml.example pwd.yml
+docker compose -f pwd.yml -p erpnext-zatca-demo up -d      # ~40s; first ever run: +10–20 min HRMS install; http://localhost:8080
+
+# 2. Mock Fatoora (the simulated tax authority)
+cd mock_fatoora && pip install -r requirements.txt && uvicorn main:app --port 8090
+
+# 3. Standalone QR signer
+cd qr-generator && pip install -r requirements.txt && python tlv_generator.py
 ```
 
-## The compliance lifecycle, as proven in this instance
+Login `Administrator` / `admin`. Demo personas for the M4 chain (password `demo123`):
+`buyer@…` Sami, `purchase.manager@…` Kareem, `accounts.manager@…` Amina.
+
+**Verify everything from zero** (blank site with frappe + erpnext + hrms): copy
+`erpnext_scripts/*` to `/tmp` in the backend container, then paste
+`exec(open("/tmp/seed_demo.py").read())` into `bench --site <site> console` —
+fixtures, all three installers, a VAT invoice, and the workflow/quote-guard proof run
+themselves (6/6 checks). Then clear the printed invoice against the mock:
+
+```bash
+docker exec <backend> bench --site <site> request --args '/api/method/zatca_submit?invoice=<name>'
+```
+
+Proven 2026-09-22 on a blank `replay` site: installers create everything from zero, a fresh
+invoice clears with a genesis hash chain, re-submit short-circuits, and a 36k quoteless PO
+is stopped at Final Approve. The demo instance already contains the seed prerequisites
+(Fiscal Year, SAR currency + Price List, selling/buying groups, UOM, Item Group, Warehouse
+Type), so replay there is one step.
+
+To replay just the fraud suite: `python erpnext_scripts/m4_e2e_test.py` (recreates its own
+POs/invoices; idempotent; dates are relative to today so it never date-rots).
+
+Caveat: the installers look up VAT accounts by name (`VAT Output`, `VAT Input`,
+fallback any `%VAT%`); a fresh Saudi-CoA site needs those accounts first.
+`dump_scripts.py` re-exports all 9 Server Scripts + Client Script + both reports +
+both print formats from a running instance (round-trip stable).
+
+## E-invoicing (M1–M2)
+
+Saudi tax invoices must carry a QR code an inspector can verify offline, and (Phase 2)
+be cleared through the Fatoora portal. This demo does both: it prints the QR and walks
+each invoice through a simulated clearance — approved, rejected, retried.
+
+**The compliance lifecycle, as proven in this instance:**
 
 | State | Invoice | Evidence |
 |---|---|---|
@@ -45,7 +96,37 @@ erpnext_scripts/zatca_submit   (in-sandbox signer, hand-rolled base64)
 | 🟥 Blocked by VAT guard | `ACC-SINV-2026-00003` (cancelled) | submission refused: no `VAT 15% - ATE` template |
 | 🔴 Rejected + retryable | `ACC-SINV-2026-00008` — status `Failed`, button stays visible | deterministic reject rule (invoice ends 3/8) |
 
-## People compliance (M3) — the payroll side of the same story
+**The details the QR actually guarantees:**
+
+- **QR payload**: TLV tags 1–5 — seller name, VAT number, timestamp, total incl. VAT, VAT
+  total — Base64'd, so an inspector verifies offline with no API or login. (TLV =
+  tag-length-value, the QR's compact binary format.)
+- **Timestamp**: local KSA time with explicit `+03:00` offset. Never `Z` on local time —
+  `Z` is a UTC *claim* and would falsify the record by 3–4 hours.
+- **Hash**: SHA-256 over the full submitted content (number + totals + QR); the mock chains
+  each accepted invoice's hash into the next response — tampering with any earlier
+  field visibly breaks the chain.
+- **Phase 2 workflow split**: B2B = clearance, B2C = reporting; separate endpoints,
+  one shared ledger. Duplicate submissions are rejected server-side
+  (`DUPLICATE_INVOICE`), and the client short-circuits re-submit of Cleared
+  invoices (`ALREADY_CLEARED`) — verified live.
+- **Two signers, one payload**: `qr-generator/tlv_generator.py` (standalone, base64 lib)
+  and `erpnext_scripts/zatca_submit` (in-sandbox, hand-rolled base64 — Server Scripts
+  ban `import`) produce byte-identical output.
+- **UBL payload** (`e-invoice/`): the XML that would actually clear Phase 2 —
+  parties + VAT IDs, issue datetime, line/document VAT math — generated stdlib-only
+  from the invoice JSON. `ubl_validate.py` proves ERPNext, XML and QR all agree
+  (ran green on `ACC-SINV-2026-00001`: 1120.00 / 168.00 / 1288.00; a tampered
+  total fails loud). Unsigned by design — see limits.
+- **Bilingual invoice**: `ZATCA Bilingual Invoice` print format (Arabic RTL block,
+  MSA labels, per-invoice QR from `custom_zatca_qr_image`, clearance UUID line)
+  plus an Arabic Iqama alert twin. Browser print proven — see limits for PDF.
+
+## Payroll (M3)
+
+Salaries in Saudi Arabia split pension contributions by nationality, cap the pensionable
+wage, and accrue end-of-service benefits monthly. This demo runs a real September 2026
+payroll for 10 employees and posts every half to the ledger.
 
 **September 2026 payroll, 10 employees, run and posted in the live instance:**
 
@@ -72,10 +153,12 @@ in `payroll_entry.py`) — this posts them: Dr GOSI Expense / Cr GOSI Payable, i
 run. `eosb_accrue.server.py` — no EOSB accrual machinery exists in core HR for KSA rules at
 all; this books monthly liability per the tier above.
 
-## Procurement controls (M4) — the 7-control approval chain
+## Procurement controls (M4)
 
-Mirrors the internal-controls vocabulary a Saudi audit firm cares about. Three demo users act
-out the fraud scenarios: **Sami** (Purchase User — creates POs, can never approve), **Kareem**
+When a company buys things, three classic frauds are: approvals that never happened,
+missing competitive quotes, and invoices for goods never ordered. This section builds one
+control per fraud — seven total — then tries to break them. Three demo users act
+out the scenarios: **Sami** (Purchase User — creates POs, can never approve), **Kareem**
 (Purchase Manager), **Amina** (Accounts Manager).
 
 | Control | Mechanism |
@@ -101,99 +184,35 @@ backstops them); the ≤10k fast-track is one click by design.
 ## What's inside
 
 ```
-pwd.yml.example          sanitized compose stack (copy to pwd.yml; real file stays
-                         git-ignored with local credentials)
-qr-generator/            M1: standalone TLV→Base64→QR signer (fetches live from ERPNext API)
-mock_fatoora/main.py     M2a: Phase 2 clearance/reporting API contract simulation
-erpnext_scripts/         M2b–d + M3: live ERPNext customizations, dumped from the instance
-  zatca_submit.server.py   API Server Script: builds QR, calls mock, stamps invoice
-  vat_guard.server.py      validate event: blocks VAT-less submissions
-  zatca_button.client.js   "Submit to ZATCA" button with status reload + alerts
-  employer_gosi.server.py  posts the employer-side GOSI HRMS's payroll JV omits (idempotent)
-  eosb_accrue.server.py    monthly EOSB liability accrual, tiered, idempotent per month
-  gosi_register.sql        Query Report: GOSI monthly contribution register (portal-shaped)
-  eosb_register.sql        Query Report: EOSB liability per expat, as-of any date
-  quote_guard.server.py    M4: SAR 25k competitive-quote threshold (base currency, coverage-checked)
-  po_match_guard.server.py M4: every priced invoice line needs a PO link
-  po_submit_gate.server.py M4: submit only via workflow (docstatus escape hatch closed)
-  pending_freeze.server.py M4: content frozen while a PO is pending approval (TOCTOU)
-  bank_change_audit.server.py M4: IBAN/bank-account retarget -> visible audit comment
-  m4_install.py            idempotent installer (custom fields + Server Scripts + VAT template + workflow)
-  m4_e2e_test.py           29-check fraud regression suite (runs as Sami/Kareem/Amina)
-  zatca_install.py         idempotent installer (ZATCA fields + scripts + print format + VAT template)
-  m3_install.py            idempotent installer (Employee fields + GOSI/EOSB scripts + notification + reports + leave types)
-  zatca_print_format.html  ZATCA Phase 1 Invoice print format (QR as data-URI)
-  zatca_print_format_ar.html  ZATCA Bilingual Invoice (AR/EN, RTL, per-invoice QR)
-  seed_demo.py             one-command rebuild: fixtures -> installers -> VAT invoice
-                         + workflow/quote-guard proof (6 checks, blank-site proven)
-e-invoice/               Phase 2 payload: invoice JSON -> UBL 2.1 XML + 3-way proof
-  ubl_generator.py         stdlib-only; parties, +03:00 datetime, VAT math (unsigned)
-  ubl_validate.py          ERPNext <-> XML <-> QR agreement (fails loud on drift)
-docs/README_AR.md        one-page Arabic summary (MSA, portal vocabulary)
-dump_scripts.py          re-export all of the above from a running instance
+pwd.yml.example      sanitized compose stack (copy to pwd.yml; real file stays
+                     git-ignored with local credentials)
+qr-generator/        M1: standalone TLV→Base64→QR signer (fetches live from ERPNext API)
+mock_fatoora/        M2a: Phase 2 clearance/reporting simulation (FastAPI :8090)
+e-invoice/           Phase 2 payload: invoice JSON -> UBL 2.1 XML + 3-way proof
+                     (ubl_generator.py, ubl_validate.py — stdlib only, unsigned)
+erpnext_scripts/     live ERPNext customizations, dumped from the instance
+  ZATCA (M2b–d):       zatca_submit.server.py (builds QR, calls mock, stamps invoice),
+                     vat_guard.server.py (blocks VAT-less submissions),
+                     zatca_button.client.js ("Submit to ZATCA" button),
+                     zatca_install.py (fields + scripts + print formats + VAT template),
+                     zatca_print_format.html (EN evidence) + _ar.html (AR/EN bilingual)
+  Payroll (M3):        employer_gosi.server.py (the employer half HRMS omits),
+                     eosb_accrue.server.py (monthly tiered accrual),
+                     gosi_register.sql + eosb_register.sql (Query Reports),
+                     m3_install.py (fields + scripts + notification + reports + leave types)
+  Procurement (M4):    quote_guard + po_match_guard + po_submit_gate +
+                     pending_freeze + bank_change_audit (.server.py),
+                     m4_install.py (fields + scripts + VAT template + workflow),
+                     m4_e2e_test.py (29-check fraud regression suite)
+  seed_demo.py       one-command rebuild: fixtures -> installers -> VAT invoice
+                     + workflow/quote-guard proof (6 checks, blank-site proven)
+dump_scripts.py      re-export scripts + reports + print formats from a running instance
+docs/                README_AR.md (Arabic summary), architecture.svg, MIS_NOTES.md,
+                     VIDEO_SCRIPT.md + VIDEO_PLAN.md, SCREENSHOTS.md,
+                     LINKEDIN_DRAFT.md, OWNERSHIP_M4.md, make_handout.py
 ACC-SINV-2026-00001_ZATCA.pdf   M1 evidence: printed invoice with embedded QR
-DECISIONS.md              decision journal — what was chosen and why
+DECISIONS.md          decision journal — what was chosen and why
 ```
-
-## Running it
-
-```bash
-# 1. ERPNext stack (HRMS is installed automatically on first up by the init-hrms service)
-#    pwd.yml itself is git-ignored (local credentials) — copy the example first.
-docker desktop start
-cd ZATCA-Compliance-Demo
-cp pwd.yml.example pwd.yml
-docker compose -f pwd.yml -p erpnext-zatca-demo up -d      # ~40s; first ever run: +10–20 min HRMS install; http://localhost:8080
-
-# 2. Mock Fatoora
-cd mock_fatoora && pip install -r requirements.txt && uvicorn main:app --port 8090
-
-# 3. Standalone signer
-cd qr-generator && pip install -r requirements.txt && python tlv_generator.py
-```
-
-Login `Administrator` / `admin`. Demo personas for the M4 chain (password `demo123`):
-`buyer@…` Sami, `purchase.manager@…` Kareem, `accounts.manager@…` Amina.
-To replay the fraud suite against a running instance: `python erpnext_scripts/m4_e2e_test.py`
-(recreates its own POs/invoices; idempotent; dates are relative to today so it never date-rots).
-To rebuild the customizations on a fresh site, copy each installer + its sibling
-files to `/tmp` in the backend container and paste
-`exec(open("/tmp/<name>_install.py").read())` into
-`bench --site frontend console` — order: `zatca_install.py`, `m3_install.py`,
-`m4_install.py`. Proven 2026-09-22 on a blank `replay` site (frappe + erpnext + hrms,
-seeded company/accounts): installers create everything from zero, a fresh invoice
-clears against the mock with a genesis hash chain, re-submit short-circuits, and a
-36k quoteless PO is stopped at Final Approve. Fresh sites need the seed prerequisites
-first (Fiscal Year, SAR currency + Price List, selling/buying groups, UOM, Item Group,
-Warehouse Type) — the demo instance already has them, which is why replay there is
-one step.
-Caveat: the installers look up VAT accounts by name (`VAT Output`, `VAT Input`,
-fallback any `%VAT%`); a fresh Saudi-CoA site needs those accounts first.
-`dump_scripts.py` re-exports all 9 Server Scripts + Client Script + both reports +
-the Print Format HTML from a running instance (round-trip stable).
-
-## ZATCA notes (the stuff the QR actually guarantees)
-
-- **QR payload**: TLV tags 1–5 — seller name, VAT number, timestamp, total incl. VAT, VAT
-  total — Base64'd, so an inspector verifies offline with no API or login.
-- **Timestamp**: local KSA time with explicit `+03:00` offset. Never `Z` on local time —
-  `Z` is a UTC *claim* and would falsify the record by 3–4 hours.
-- **Hash**: SHA-256 over the full submitted content (number + totals + QR); the mock chains
-  each accepted invoice's hash into the next response — tampering with any earlier
-  field visibly breaks the chain.
-- **Phase 2 workflow split**: B2B = clearance, B2C = reporting; separate endpoints,
-  one shared ledger. Duplicate submissions are rejected server-side
-  (`DUPLICATE_INVOICE`), and the client short-circuits re-submit of Cleared
-  invoices (`ALREADY_CLEARED`) — verified live.
-- **UBL payload** (`e-invoice/`): the XML that would actually clear Phase 2 —
-  parties + VAT IDs, issue datetime, line/document VAT math — generated stdlib-only
-  from the invoice JSON. `ubl_validate.py` proves ERPNext, XML and QR all agree
-  (ran green on `ACC-SINV-2026-00001`: 1120.00 / 168.00 / 1288.00; a tampered
-  total fails loud). Unsigned by design — see limits.
-- **Bilingual invoice**: `ZATCA Bilingual Invoice` print format (Arabic RTL block,
-  MSA labels, per-invoice QR from `custom_zatca_qr_image`, clearance UUID line)
-  plus an Arabic Iqama alert twin. Browser print proven; container PDF needs an
-  Arabic font the stock image lacks (see limits).
 
 ## Honest limitations
 
@@ -217,9 +236,5 @@ the Print Format HTML from a running instance (round-trip stable).
 - Server Scripts require `server_script_enabled` (bench) + sandbox rules (no `import`,
   no `format()` builtins) — our signer hand-rolls Base64 to match `base64.b64encode`
   byte-for-byte, which doubles as proof we understand the encoding.
-
-## Known bugs found on purpose (from DECISIONS.md)
-
-Invoice drafts burn numbers (`00003-1` suffix dodged a rejection rule once), submitted
-docs refuse renames, silent mock downtime looked like a dead button — all documented in
-`DECISIONS.md` with fixes.
+- Drafts burn invoice numbers (`00003-1` suffix once dodged a rejection rule) and submitted
+  docs refuse renames — ERPNext behavior, documented in `DECISIONS.md` with workarounds.
