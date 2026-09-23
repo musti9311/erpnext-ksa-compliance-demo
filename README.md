@@ -1,12 +1,29 @@
 # ERPNext KSA Compliance Demo — ZATCA, Payroll & Procurement Controls
 
-A working Saudi-compliance demo built on a local ERPNext v16 stack: every invoice gets a
-**ZATCA Phase 1 QR** (TLV/Base64), a **mock Fatoora** exercises the full Phase 2 clearance
-lifecycle — submit → cleared → rejected → retried — with a SHA-256 chain for tamper evidence,
-**HR/Payroll models GOSI + EOSB + Iqama expiry** end-to-end (real September payroll for 10
-employees, both contribution halves posted to the ledger), and **procurement enforces the
-7-control approval chain** — two-level PO approval, competitive-quote threshold, invoice-to-PO
-matching — proven against an adversarial bypass audit (29/29 fraud checks).
+![self-check](https://github.com/musti9311/erpnext-ksa-compliance-demo/actions/workflows/selfcheck.yml/badge.svg)
+![ERPNext v16](https://img.shields.io/badge/ERPNext-v16-blue)
+![fraud checks](https://img.shields.io/badge/fraud%20checks-29%2F29-green)
+![Jeddah](https://img.shields.io/badge/Jeddah-available%20immediately-lightgrey)
+
+> **I'm Mustafa, an entry-level MIS / ERP Assistant in Jeddah.** No prior ERP job —
+> so I taught myself ERPNext by closing 7 real Saudi compliance gaps on a local
+> stack, and documented everything: every invoice gets a **ZATCA Phase 1 QR**,
+> a **mock Fatoora** exercises the full clearance lifecycle with a SHA-256 chain,
+> **payroll posts real GOSI + EOSB to the ledger** (10 employees), and procurement
+> runs a **7-control approval chain** my own stress tests tried to break 29 ways.
+> Contact: musti9311@yahoo.com — Arabic summary in [docs/README_AR.md](docs/README_AR.md).
+
+![Architecture](docs/architecture.svg)
+
+**See it in 60 seconds** (screenshots — video coming):
+| Invoice QR (TLV, offline) | Blocked PO (no quote) | GOSI register |
+|---|---|---|
+| ![QR invoice](docs/shot_qr.png) | ![blocked PO](docs/shot_blocked_po.png) | ![GOSI register](docs/shot_gosi.png) |
+
+**What this proves about me:** SQL reporting (GOSI/EOSB registers I wrote and reconciled —
+including a 0.3% delta I investigated, not hid), testing discipline (29 checks, all green),
+documentation habit ([decision journal](DECISIONS.md) for every choice), and honesty about
+limits ([below](#honest-limitations)). Currently learning: HRMS payroll runs, UBL e-invoicing.
 
 > Built as a portfolio project (Sept 2026). All data is fictional (Al-Rehab Trading Est.,
 > Jeddah). No real CR, no real tax authority connection — see [Honest limitations](#honest-limitations).
@@ -81,11 +98,12 @@ out the fraud scenarios: **Sami** (Purchase User — creates POs, can never appr
 | Rate integrity | ERPNext core `maintain_same_rate_action=Stop` verified (PO 45 → invoice 60 blocked) — not re-invented |
 | Vendor-payment fraud trail | `bank_change_audit`: any IBAN / default-bank-account retarget is stamped into the Supplier's visible timeline naming the doer, old→new |
 
-**The audit story is the point.** First version passed 16/16 of my own tests; a read-only
-adversarial audit then found **4 real bypasses** (currency-blind thresholds, token-line
-laundering, docstatus escape hatch, mid-approval TOCTOU). All four fixed, each converted into
-a permanent regression: `erpnext_scripts/m4_e2e_test.py` — 29 checks, idempotent, run as the
-real users through the live API. Every decision and sandbox gotcha in `DECISIONS.md`.
+**The stress-test story is the point.** First version passed 16/16 of my own tests; then I
+attacked it with simulated fraud (the same tricks a dishonest user would try) and found
+**4 real bypasses** (currency-blind thresholds, token-line laundering, docstatus escape
+hatch, mid-approval TOCTOU). All four fixed, each converted into a permanent regression:
+`erpnext_scripts/m4_e2e_test.py` — 29 checks, idempotent, run as the real users through
+the live API. Every decision and sandbox gotcha in `DECISIONS.md`.
 
 Residual risks, stated openly: Administrator can delete audit comments (Frappe's Version log
 backstops them); the ≤10k fast-track is one click by design.

@@ -1,0 +1,28 @@
+# Offline self-checks: everything here runs without ERPNext, Docker, or secrets.
+# Green badge = the demo's math and contracts hold on every push.
+name: self-check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install mock deps
+        run: pip install -r mock_fatoora/requirements.txt
+      - name: Compile everything
+        run: python -m compileall -q mock_fatoora e-invoice qr-generator dump_scripts.py
+      - name: Mock Fatoora contract (dupe guard, chain, B2B/B2C)
+        run: python mock_fatoora/main.py
+      - name: UBL generator self-check
+        run: python e-invoice/ubl_generator.py
+      - name: Handout still builds
+        run: |
+          pip install -q qrcode reportlab
+          python docs/make_handout.py
